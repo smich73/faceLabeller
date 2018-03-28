@@ -16,37 +16,41 @@ SECRETS = json.loads(open("./secrets.json", "r").read())
 
 class CognitiveServicesClient:
   def __init__(self, api_key):
-    self._api_key = None 
+    self._api_key = api_key 
 
-  def put(self, url, json):
+  def put(self, url, payload = None):
     print(url)
     headers = { "Ocp-Apim-Subscription-Key" : self._api_key }
-    response = requests.put(url, headers = headers, json = json)
-    return json.loads(response.text)
+    response = requests.put(url, headers = headers, json = payload)
+    if response.ok:
+      return json.loads(response.text)
 
   def get(self, url):
     print(url)
     headers = { "Ocp-Apim-Subscription-Key" : self._api_key }
     response = requests.get(url, headers = headers)
-    return json.loads(response.text)
+    if response.ok:
+      return json.loads(response.text)
 
-  def post(self, url, json = None):
+  def post(self, url, payload = None):
     print(url)
     headers = { "Ocp-Apim-Subscription-Key" : self._api_key }
-    response = requests.post(url, headers = headers, json = json)
-    return json.loads(response.text)
+    response = requests.post(url, headers = headers, json = payload)
+    if response.ok:
+      return json.loads(response.text)
 
   def delete(self, url):
     print(url)
     headers = { "Ocp-Apim-Subscription-Key" : self._api_key }
     response = requests.delete(url, headers = headers)
-    return json.loads(response.text)
+    if response.ok:
+      return json.loads(response.text)
 
 
 class PersonGroup(CognitiveServicesClient):
   def __init__(self, id = None):
     super().__init__(SECRETS["COGNITIVE_KEY"])
-    self._id = None
+    self._id = id
   
   def createPersonGroup(self, id, userData = ""):
     url = Template(
@@ -65,7 +69,7 @@ class PersonGroup(CognitiveServicesClient):
   def getPerson(self):
     url = Template(
       "https://${regionId}.api.cognitive.microsoft.com/face/v1.0/persongroups/${personGroupId}/persons/${personId}"
-    ). = url.substitute(regionId = REGION_ID, personGroupId = self, personId = personId)
+    ).substitute(regionId = REGION_ID, personGroupId = self, personId = personId)
     return self.get(url)
 
   def delete(self):
@@ -98,27 +102,27 @@ class PersonGroup(CognitiveServicesClient):
     url = Template(
       "https://${regionId}.api.cognitive.microsoft.com/face/v1.0/persongroups/${personGroupId}/persons/${personId}/persistedFaces"
     ).substitute(regionId = REGION_ID, personGroupId = self._id, personId = personId)
-    return requests.post(url, json = { "url" : faceUrl })
+    return requests.post(url, { "url" : faceUrl })
 
-  def _detectFace(faceUrl):
+  def _detectFace(self, faceUrl):
     url = Template(
       "https://${regionId}.api.cognitive.microsoft.com/face/v1.0/detect"
     ).substitute(regionId = REGION_ID)
-    return self.post(url, json = { "url" : faceUrl })
+    return self.post(url, { "url" : faceUrl })
 
   def identifyFace(self, faceUrl):
-    detectResponse = self._detectFace(faceUrl)
+    faceId = self._detectFace(faceUrl)[0]["faceId"]
     url = Template(
       "https://${regionId}.api.cognitive.microsoft.com/face/v1.0/identify"
     ).substitute(regionId = REGION_ID)
-    return self.post(url, json = { "faceIds" : [ faceId ], "personGroupId" : self._id })
+    return self.post(url, { "faceIds" : [ faceId ], "personGroupId" : self._id })
 
 
 class VideoIndexer(CognitiveServicesClient):
   def __init__(self):
     super().__init__(SECRETS["VIDEO_INDEXER_KEY"])
   
-  def labelFace(breakdownId, faceId, toName):
+  def labelFace(self, breakdownId, faceId, toName):
     url = Template(
     "https://videobreakdown.azure-api.net/Breakdowns/Api/Partner/Breakdowns/UpdateFaceName/${id}?faceId=${faceId}&newName=${toName}"
     ).substitute(id = breakdownId, faceId = faceId, toName = toName)
@@ -157,10 +161,11 @@ def labelFaces(jsonInput):
   for face in faces:
     with rate_limiter:
       results = pg.identifyFace(face["thumbnailFullUrl"])
-      if len(results[0]["candidates"]):
+      if results and len(results) and len(results[0]["candidates"]):
         personId = results[0]["candidates"][0]["personId"]
         name = pg.getPerson(personId)["name"]
-        vi.labelFace(breakdownId, face["id"], name)
+        if name:
+          vi.labelFace(breakdownId, face["id"], name)
 
 def main():
   jsonInput = json.loads(open("input.json", "r").read())
